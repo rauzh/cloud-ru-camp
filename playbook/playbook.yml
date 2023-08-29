@@ -1,0 +1,54 @@
+---
+- name: Configure user and SSH settings
+  hosts: localhost
+  become: true
+
+# better be stored in file
+  vars:
+    user_name: cloudru
+    user_password: cloudpass
+    ssh_file: cloud_ru.pub
+
+  tasks:
+
+    - name: Check if user exists
+      command: id "{{ user_name }}"
+      register: user_exists
+      failed_when: false
+      changed_when: false
+
+    - name: Create user with password
+      user:
+        name: "{{ user_name }}"
+        password: "{{ user_password | password_hash('sha512') }}"
+        shell: /bin/bash
+        createhome: yes
+      when: user_exists.rc != 0
+
+    - name: Allow SSH authentication with key
+      authorized_key:
+        user: "{{ user_name }}"
+        state: present
+        key: "{{ lookup('file', ssh_file) }}"
+
+    - name: Disable SSH login for root user
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        line: "PermitRootLogin no"
+        regexp: '^#?PermitRootLogin'
+        state: present
+        backup: yes
+      notify:
+        - Restart SSH
+
+    - name: Copy public key for user
+      authorized_key:
+        user: "{{ user_name }}"
+        state: present
+        key: "{{ lookup('file', playbook_dir + '/' + ssh_file) }}"
+
+  handlers:
+    - name: Restart SSH
+      service:
+        name: sshd
+        state: restarted
